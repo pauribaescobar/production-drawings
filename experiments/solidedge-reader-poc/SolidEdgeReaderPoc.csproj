@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="PdfSharp" Version="1.50.5147" />
     <PackageReference Include="SolidEdge.Community.Reader" Version="2.0.0" />
   </ItemGroup>
 

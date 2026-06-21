@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: production-drawings-processing
+Version: 0.1.0
+Summary: Python processing tools for production drawings
+Requires-Python: >=3.13
+Requires-Dist: pypdfium2>=4.30.0
+Requires-Dist: pypdf>=5.0.0

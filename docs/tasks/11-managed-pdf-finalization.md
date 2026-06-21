@@ -10,7 +10,7 @@ The worker already exports EMF sheets. The next reliable step is to convert thos
 
 ## Decision
 
-Use `Syncfusion.Pdf` for the PDF finalization and annotation stage.
+Use a managed PDF library such as `PdfSharp` or `Syncfusion.Pdf` for the PDF finalization and annotation stage.
 
 ## Why this path
 

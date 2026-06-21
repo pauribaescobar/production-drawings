@@ -4,7 +4,7 @@ Derived from `docs/tasks/11-managed-pdf-finalization.md`, `docs/tasks/10-annotat
 
 ## Objective
 
-Replace the Windows print-pipeline finalization step with a managed .NET PDF library inside the Windows worker, keeping `Microsoft Print to PDF` only as a fallback.
+Replace the Windows print-pipeline finalization step with a managed .NET PDF library inside the Windows worker, keeping the Windows print subsystem only as a fallback.
 
 ## Scope
 

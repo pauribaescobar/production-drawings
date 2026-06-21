@@ -3,19 +3,18 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
-using System.Drawing.Printing;
 using System.Drawing.Text;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using PdfSharp.Drawing;
+using PdfSharp.Pdf;
 
 namespace SolidedgeReaderPoc;
 
 internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
 {
-    private const string PrinterName = "Microsoft Print to PDF";
-
     public void WritePdf(string outputPdfPath, IReadOnlyList<string> emfFiles, IReadOnlyList<SheetAnnotation> annotations)
     {
         if (string.IsNullOrWhiteSpace(outputPdfPath))
@@ -39,41 +38,58 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
         if (File.Exists(outputPdfPath))
             File.Delete(outputPdfPath);
 
-        using var document = new PrintDocument
-        {
-            DocumentName = Path.GetFileNameWithoutExtension(outputPdfPath),
-            OriginAtMargins = false,
-            PrintController = new StandardPrintController(),
-        };
+        using var document = new PdfDocument();
+        document.Info.Title = Path.GetFileName(outputPdfPath);
+        document.Info.Creator = "SolidedgeReaderPoc";
 
-        document.PrinterSettings.PrinterName = PrinterName;
-        document.PrinterSettings.PrintToFile = true;
-        document.PrinterSettings.PrintFileName = outputPdfPath;
-        document.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0);
-
-        if (!document.PrinterSettings.IsValid)
-            throw new DraftPdfFinalizationException(
-                $"The '{PrinterName}' printer is not available on this host. Enable the Windows PDF printer before running the worker.");
-
-        int pageIndex = 0;
-
-        document.QueryPageSettings += (_, e) =>
-        {
-            e.PageSettings.Margins = new Margins(0, 0, 0, 0);
-        };
-
-        document.PrintPage += (_, e) =>
+        for (int pageIndex = 0; pageIndex < emfFiles.Count; pageIndex++)
         {
             string emfPath = emfFiles[pageIndex];
             SheetAnnotation annotation = annotations[pageIndex];
 
-            RenderPage(e.Graphics, e.PageBounds, emfPath, annotation);
+            using Bitmap pageBitmap = RenderPageBitmap(emfPath, annotation);
+            var page = document.AddPage();
+            page.Width = XUnit.FromPoint(pageBitmap.Width * 72.0 / pageBitmap.HorizontalResolution);
+            page.Height = XUnit.FromPoint(pageBitmap.Height * 72.0 / pageBitmap.VerticalResolution);
 
-            pageIndex++;
-            e.HasMorePages = pageIndex < emfFiles.Count;
-        };
+            using XGraphics gfx = XGraphics.FromPdfPage(page);
+            using var imageStream = new MemoryStream();
+            pageBitmap.Save(imageStream, ImageFormat.Png);
+            imageStream.Position = 0;
+            using XImage xImage = XImage.FromStream(imageStream);
+            gfx.DrawImage(xImage, 0, 0, page.Width, page.Height);
+        }
 
-        document.Print();
+        document.Save(outputPdfPath);
+    }
+
+    private static Bitmap RenderPageBitmap(string emfPath, SheetAnnotation annotation)
+    {
+        using var metadataImage = Image.FromFile(emfPath);
+        int dpiX = metadataImage.HorizontalResolution > 0 ? (int)Math.Round(metadataImage.HorizontalResolution) : 300;
+        int dpiY = metadataImage.VerticalResolution > 0 ? (int)Math.Round(metadataImage.VerticalResolution) : 300;
+
+        int pageWidth = Math.Max(1, (int)Math.Ceiling(metadataImage.Width * dpiX / metadataImage.HorizontalResolution));
+        int pageHeight = Math.Max(1, (int)Math.Ceiling(metadataImage.Height * dpiY / metadataImage.VerticalResolution));
+        if (pageWidth <= 0) pageWidth = 2480;
+        if (pageHeight <= 0) pageHeight = 3508;
+
+        var bitmap = new Bitmap(pageWidth, pageHeight, PixelFormat.Format32bppArgb);
+        bitmap.SetResolution(dpiX, dpiY);
+
+        using (Graphics graphics = Graphics.FromImage(bitmap))
+        {
+            graphics.Clear(Color.White);
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+            graphics.CompositingQuality = CompositingQuality.HighQuality;
+            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+            RenderPage(graphics, new Rectangle(0, 0, pageWidth, pageHeight), emfPath, annotation);
+        }
+
+        return bitmap;
     }
 
     private static void RenderPage(Graphics graphics, Rectangle pageBounds, string emfPath, SheetAnnotation annotation)

@@ -1,0 +1,2 @@
+[console_scripts]
+parse-order-pdf = production_drawings.cli:main

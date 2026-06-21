@@ -10,7 +10,7 @@ The worker now has a reliable EMF intermediate, but the pipeline still needs a W
 
 ## Decision
 
-Use a managed .NET PDF library inside the Windows worker to finalize the PDF, with `Microsoft Print to PDF` kept only as a fallback.
+Use a managed .NET PDF library inside the Windows worker to finalize the PDF, with the Windows print subsystem kept only as a fallback.
 
 ## Why this path
 

@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+src/production_drawings/__init__.py
+src/production_drawings/cli.py
+src/production_drawings/merge.py
+src/production_drawings/parser.py
+src/production_drawings_processing.egg-info/PKG-INFO
+src/production_drawings_processing.egg-info/SOURCES.txt
+src/production_drawings_processing.egg-info/dependency_links.txt
+src/production_drawings_processing.egg-info/entry_points.txt
+src/production_drawings_processing.egg-info/requires.txt
+src/production_drawings_processing.egg-info/top_level.txt

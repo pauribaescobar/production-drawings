@@ -19,7 +19,7 @@ This runbook explains how to validate the Solid Edge DFT worker on a Windows mac
 - A cloned copy of this repository
 - At least one `.dft` sample file
 - A matching parsed-order JSON file
-- The `Microsoft Print to PDF` printer available on the machine
+- The worker uses managed PDF generation and does not require a Windows PDF printer
 
 ## Recommended install set
 
@@ -46,6 +46,12 @@ The executable should end up at:
 ```text
 experiments\solidedge-reader-poc\bin\Release\net48\SolidedgeReaderPoc.exe
 ```
+
+Important build notes:
+
+- If you see compiler errors like `CS0518: System.Runtime.CompilerServices.IsExternalInit` missing, the project is targeting `net48` and requires a small shim file (`experiments/solidedge-reader-poc/IsExternalInit.cs`) to support C# `record` types.
+- If you see `DraftDocument` not found, ensure the `DraftEmfExporter.cs` source imports the `SolidEdgeCommunity.Reader.Draft` namespace and the `SolidEdge.Community.Reader` NuGet package is restored.
+- The worker now uses `PdfSharp` for PDF finalization and does not require the Windows print subsystem.
 
 ## 2. Prepare test inputs
 
