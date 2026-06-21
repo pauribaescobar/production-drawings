@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "production-drawings-processing"
+version = "0.1.0"
+description = "Python processing tools for production drawings"
+requires-python = ">=3.13"
+dependencies = [
+  "pypdfium2>=4.30.0",
+  "pypdf>=5.0.0",
+]
+
+[project.scripts]
+parse-order-pdf = "production_drawings.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
