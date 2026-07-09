@@ -85,6 +85,7 @@ export type DftPreflightReport = {
   duplicateDfts: DuplicateDftReport[];
   ignoredZipFiles: IgnoredZipFileReport[];
   repeatedReferences: RepeatedReferenceReport[];
+  warnings: string[];
   blockingReasons: string[];
   readyForGeneration: boolean;
   parsedOrderLines: ParsedOrderRow[];
@@ -279,6 +280,12 @@ function buildRepeatedReferenceReports(rows: ParsedOrderRow[]): RepeatedReferenc
       lineNumbers: group.lineNumbers,
       businessIdentityKeys: Array.from(group.businessIdentityKeys),
     }));
+}
+
+function buildUnmatchedPdfWarnings(rows: ParsedOrderRow[]): string[] {
+  return rows.map(
+    (row) => `La línea ${row.lineNumber} (${row.referenceRaw}) no tiene plano en el ZIP.`,
+  );
 }
 
 function buildBusinessIdentityGroup(rows: ParsedOrderRow[]): BusinessIdentityGroup {
@@ -478,6 +485,7 @@ export function analyzeDrawingMatches(
     }));
 
   const repeatedReferences = buildRepeatedReferenceReports(parsedRows);
+  const warnings = buildUnmatchedPdfWarnings(unmatchedPdfRows);
   const generationUnits = buildGenerationUnits(resolvedDfts, new Map(dftInventory.map((dft) => [dft.dftPath, dft])));
   const blockingReasons = buildBlockingReasons({
     duplicateDfts: duplicateDftGroups,
@@ -496,6 +504,7 @@ export function analyzeDrawingMatches(
     duplicateDfts: duplicateDftGroups,
     ignoredZipFiles,
     repeatedReferences,
+    warnings,
     blockingReasons,
     readyForGeneration: blockingReasons.length === 0,
     parsedOrderLines: parsedRows,

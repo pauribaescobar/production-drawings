@@ -2,11 +2,12 @@
 
 ## Goal
 
-Implement the concrete annotation layout defined in `TECH_SPEC.md` so the worker draws the business data in a fixed, readable block on the generated PDF.
+Implement the concrete annotation layout defined in `TECH_SPEC.md` so the worker overlays the business data directly on top of the original drawing in a fixed, readable way.
 
 ## Why this exists
 
 The worker now has a final PDF path, but the annotations need a real layout contract instead of placeholder or generic text.
+The current output should be treated as the negative reference (`final.pdf`) and the annotated target as the positive reference (`final correcto.pdf`).
 
 ## Inputs
 
@@ -17,7 +18,11 @@ The worker now has a final PDF path, but the annotations need a real layout cont
 
 ## Scope
 
-* render the annotation block in the upper-right / right-hand area of the sheet
+* overlay the annotation text on top of the original plan, not as a detached side panel
+* place the text inside the drawing area at the same relative position shown in the reference mock
+* keep the original drawing visible and do not add a new right-hand rectangle or separate page block
+* add text only, never cover or replace existing drawing content
+* never move or reflow existing plan content to make room for annotations
 * highlight the treatment line with a yellow marker-style background
 * render dimensions as labeled value pairs
 * render quantity, material, delivery date, and order number in the defined order
@@ -38,14 +43,17 @@ The block must include:
 
 * treatment must stand out visually
 * the block must be legible in black and white
-* keep a clean box layout with spacing between rows
+* keep the text compact and aligned with the existing drawing composition
+* locate the dimension labels already present in the PDF and write the corresponding values next to them
+* if a value would overlap existing drawing text, shift the annotation into the nearest free area without covering the source drawing
 * if a dimension is missing, omit that row
 * do not invent extra annotations
 
 ## Acceptance criteria
 
-* the worker draws a concrete annotation block instead of generic placeholder text
-* the layout matches the product example closely enough to be recognizable
+* the worker overlays concrete annotation text instead of generic placeholder text
+* the layout matches the annotated example closely enough to be recognizable
 * the piece reference is not duplicated in the block
+* no annotation text obscures the original drawing text
+* dimensions are rendered as values attached to their matching labels rather than as a detached table
 * the block is usable as the standard template for real drawings
-

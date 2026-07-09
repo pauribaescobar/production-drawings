@@ -21,7 +21,8 @@ Extraction clarification from sample pages:
 
 * `Material` is the full material cell content, including qualifiers such as `CERTIFICADO`
 * `Treatment` comes from its own dedicated last column, not from the tail of `Material`
-* `reference` accepts bare numeric values and other plausible shapes that appear in the reference column
+* `reference` accepts bare numeric values, alphanumeric values, and values with hyphens such as `733-8`
+* `reference` accepts other plausible shapes that appear in the reference column
 * the parser must remain column-based, not regexp-first
 * a row at page end must still be captured even if the delivery-date cell is empty
 * if a row breaks across a page boundary, keep it pending when the first page ends before `deliveryDate` and let the next page's first detail block complete the same row
@@ -39,6 +40,7 @@ The system needs a model where:
 * PDF rows are extracted more robustly from table data
 * rows link to DFTs through `reference`
 * rows are grouped and aggregated only by full business identity
+* if a PDF row references a DFT that is not present in the ZIP, the user must be warned clearly and generation must not proceed as if that piece existed
 
 ## Key design decision
 
@@ -116,6 +118,8 @@ The parser must not hardcode a single narrow regexp as the only valid shape for 
 It should support known shapes such as:
 
 * bare numeric references
+* alphanumeric references
+* hyphenated references such as `733-8`
 * 4 digits + 1 letter
 * 5 digits + 2 letters + optional number
 * 5 digits + 2 letters
@@ -188,6 +192,11 @@ The implementation must enforce these rules:
    * preserve it per source row
    * preserve the set of delivery dates per identity group
    * if delivery dates differ within one identity group, raise a warning or conflict according to downstream requirements
+
+5. Missing DFT referenced by a PDF row:
+   * surface the missing piece to the user
+   * treat the job as incomplete for generation purposes
+   * do not silently drop the referenced piece from the output
 
 ## Affected implementation areas
 

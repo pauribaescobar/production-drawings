@@ -147,10 +147,6 @@ def _parse_header_line(line: TextLine) -> dict[str, object] | None:
     if not PROJECT_TOKEN_RE.match(segments[0].strip()):
         return None
 
-    reference = segments[1].strip()
-    if not reference:
-        return None
-
     quantity_index: int | None = None
     quantity_value: int | None = None
     price_in_same_segment = False
@@ -161,6 +157,9 @@ def _parse_header_line(line: TextLine) -> dict[str, object] | None:
             continue
 
         if INTEGER_TOKEN_RE.match(tokens[0]):
+            previous_segment = segments[index - 1].strip()
+            if previous_segment == "-" or previous_segment.endswith("-") or segment.startswith("-"):
+                continue
             quantity_index = index
             quantity_value = int(tokens[0])
             if len(tokens) > 1 and PRICE_TOKEN_RE.match(tokens[1]):
@@ -172,6 +171,9 @@ def _parse_header_line(line: TextLine) -> dict[str, object] | None:
 
     quantity = quantity_value
     tail_segments = segments[quantity_index + 1 :]
+    reference = "".join(segments[1:quantity_index]).strip()
+    if not reference:
+        return None
 
     if not price_in_same_segment and tail_segments and PRICE_TOKEN_RE.match(tail_segments[0].strip()):
         tail_segments = tail_segments[1:]

@@ -48,6 +48,7 @@ export type PublicPreflightReport = {
   orderNumber: string;
   matchedDfts: ResolvedPieceOutput[];
   missingDfts: MissingDftOutput[];
+  warnings: string[];
   readyForGeneration: boolean;
 };
 
@@ -262,6 +263,7 @@ function sanitizePreflightReport(report: DftPreflightReport): PublicPreflightRep
       dftFileName: dft.fileName,
       dftPath: dft.dftPath,
     })),
+    warnings: report.warnings,
     readyForGeneration: report.readyForGeneration,
   };
 }

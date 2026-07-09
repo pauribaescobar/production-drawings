@@ -22,6 +22,7 @@ type PreflightReport = {
     dftFileName: string;
     dftPath: string;
   }>;
+  warnings: string[];
   readyForGeneration: boolean;
 };
 

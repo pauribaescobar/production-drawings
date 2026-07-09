@@ -13,6 +13,7 @@ interface PreflightReport {
   orderNumber: string
   matchedDfts: ResolvedPieceOutput[]
   missingDfts: MissingDftOutput[]
+  warnings: string[]
   readyForGeneration: boolean
 }
 
@@ -37,6 +38,7 @@ interface MissingDftOutput {
 * `matchedDfts` contains one entry per resolved piece output unit.
 * If multiple source rows share the same business identity, they are merged into one entry.
 * `quantity` is the printable grouped expression, such as `"2 + 2"`.
+* `warnings` includes user-facing issues such as PDF rows that have no matching DFT in the ZIP, for example `La línea 3 (733-8) no tiene plano en el ZIP.`
 * The contract does not expose intermediate row-level fields such as `rowId`, `referenceKey`, `businessIdentityKey`, `rawRowText`, `quantityExpression`, `unmatchedPdfRows`, or `repeatedOrderLines`.
 * `dftFileName` and `dftPath` identify which drawing downstream stages must modify.
 * A row may begin on one page and complete on the next page when the delivery date and description land in the first detail block of the following page; the parser must preserve that as one logical row.
@@ -62,6 +64,7 @@ interface MissingDftOutput {
     }
   ],
   "missingDfts": [],
+  "warnings": [],
   "readyForGeneration": true
 }
 ```
