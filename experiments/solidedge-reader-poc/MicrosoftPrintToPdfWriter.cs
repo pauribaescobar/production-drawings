@@ -154,7 +154,7 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
 
             DrawHighlightedText(
                 graphics,
-                annotation.Treatment.Trim().ToUpperInvariant(),
+                annotation.Treatment!.Trim().ToUpperInvariant(),
                 treatmentRect,
                 titleBrush,
                 highlightBrush,
@@ -590,7 +590,7 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
             if (!string.Equals(anchor.Text, normalizedAxis, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (best is null || anchor.Bounds.Right > best.Value.Bounds.Right)
+            if (best is null || anchor.Bounds.Right > best.Bounds.Right)
                 best = anchor;
         }
 
