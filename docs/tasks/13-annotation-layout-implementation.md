@@ -23,9 +23,11 @@ The current output should be treated as the negative reference (`final.pdf`) and
 * keep the original drawing visible and do not add a new right-hand rectangle or separate page block
 * add text only, never cover or replace existing drawing content
 * never move or reflow existing plan content to make room for annotations
+* dimension callouts in the source drawing are blue; the layout should attach each extracted value next to its matching callout, not below a placeholder block
+* when a dimension letter appears multiple times, anchor to the instance with the highest `x` coordinate, which is the one closest to the intended center-right annotation area
 * highlight the treatment line with a yellow marker-style background
-* render dimensions as labeled value pairs
-* render quantity, material, delivery date, and order number in the defined order
+* render dimensions as inline value overlays adjacent to their matching callouts
+* render quantity, material, delivery date, and order number as compact inline overlays, not as stacked placeholder rows
 * exclude the piece reference from the block because it comes from the DFT filename
 
 ## Required content
@@ -46,6 +48,7 @@ The block must include:
 * keep the text compact and aligned with the existing drawing composition
 * locate the dimension labels already present in the PDF and write the corresponding values next to them
 * if a value would overlap existing drawing text, shift the annotation into the nearest free area without covering the source drawing
+* do not render empty placeholder boxes or blank lines under the values
 * if a dimension is missing, omit that row
 * do not invent extra annotations
 
@@ -56,4 +59,5 @@ The block must include:
 * the piece reference is not duplicated in the block
 * no annotation text obscures the original drawing text
 * dimensions are rendered as values attached to their matching labels rather than as a detached table
+* no placeholder rows are drawn under the annotation values
 * the block is usable as the standard template for real drawings

@@ -132,7 +132,7 @@ $env:DFT_WORKER_COMMAND = "C:\repo\production-drawings\experiments\solidedge-rea
 
 - missing DFT file
 - parsed-order JSON does not match the DFT basename
-- `Microsoft Print to PDF` is unavailable
+- `Microsoft Print to PDF` is unavailableY
 - output directory is not writable
 - the Windows worker executable has not been built yet
 

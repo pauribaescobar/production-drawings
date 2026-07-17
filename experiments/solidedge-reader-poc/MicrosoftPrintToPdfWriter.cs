@@ -8,6 +8,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
 
@@ -86,13 +87,13 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
             graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
             graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-            RenderPage(graphics, new Rectangle(0, 0, pageWidth, pageHeight), emfPath, annotation);
+            RenderPage(graphics, new Rectangle(0, 0, pageWidth, pageHeight), bitmap, emfPath, annotation);
         }
 
         return bitmap;
     }
 
-    private static void RenderPage(Graphics graphics, Rectangle pageBounds, string emfPath, SheetAnnotation annotation)
+    private static void RenderPage(Graphics graphics, Rectangle pageBounds, Bitmap pageBitmap, string emfPath, SheetAnnotation annotation)
     {
         graphics.Clear(Color.White);
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -101,28 +102,57 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
         using var image = Image.FromFile(emfPath);
         RectangleF fitted = FitToBounds(image.Width, image.Height, pageBounds);
         graphics.DrawImage(image, fitted);
-        DrawOverlayAnnotations(graphics, fitted, annotation);
+
+        PageLayoutAnalysis layout = BuildPageLayout(emfPath, pageBitmap, fitted);
+        DrawOverlayAnnotations(graphics, fitted, annotation, layout);
     }
 
-    private static void DrawOverlayAnnotations(Graphics graphics, RectangleF drawingBounds, SheetAnnotation annotation)
+    private static PageLayoutAnalysis BuildPageLayout(string emfPath, Bitmap pageBitmap, RectangleF drawingBounds)
+    {
+        var occupancy = new OccupancyGrid(pageBitmap);
+        RectangleF occupiedBounds = FindOccupiedBounds(pageBitmap);
+        IReadOnlyList<TextAnchor> textAnchors = ExtractTextAnchors(emfPath, drawingBounds);
+        return new PageLayoutAnalysis(occupancy, occupiedBounds, textAnchors);
+    }
+
+    private static void DrawOverlayAnnotations(
+        Graphics graphics,
+        RectangleF drawingBounds,
+        SheetAnnotation annotation,
+        PageLayoutAnalysis layout)
     {
         using var titleBrush = new SolidBrush(Color.FromArgb(30, 30, 30));
         using var mutedBrush = new SolidBrush(Color.FromArgb(90, 90, 90));
         using var highlightBrush = new SolidBrush(Color.FromArgb(140, 255, 245, 90));
 
-        float labelSize = 8.5f;
-        float valueSize = 12.5f;
-        float treatmentSize = 15.5f;
-        float dimensionSize = 11.0f;
+        float labelSize = 8.0f;
+        float valueSize = 11.0f;
+        float treatmentSize = 15.0f;
+        float dimensionSize = 10.5f;
 
-        var treatmentRect = new RectangleF(
-            drawingBounds.Left + drawingBounds.Width * 0.63f,
-            drawingBounds.Top + drawingBounds.Height * 0.03f,
-            drawingBounds.Width * 0.26f,
-            54f);
+        var reserved = new List<RectangleF>();
+        float rightAnchor = Math.Max(
+            drawingBounds.Left + drawingBounds.Width * 0.66f,
+            layout.OccupiedBounds.Right + 12f);
+
+        if (rightAnchor > drawingBounds.Right - drawingBounds.Width * 0.16f)
+            rightAnchor = drawingBounds.Right - drawingBounds.Width * 0.16f;
+
+        float topAnchor = Math.Max(drawingBounds.Top + 8f, layout.OccupiedBounds.Top + 8f);
+        RectangleF treatmentRect = RectangleF.Empty;
+
+        var treatmentSizeF = MeasureSingleLine(graphics, annotation.Treatment?.Trim().ToUpperInvariant() ?? string.Empty, "Segoe UI", treatmentSize, FontStyle.Bold);
+        var treatmentPreferred = new RectangleF(rightAnchor, topAnchor, treatmentSizeF.Width + 16f, treatmentSizeF.Height + 12f);
 
         if (!string.IsNullOrWhiteSpace(annotation.Treatment))
         {
+            treatmentRect = FindFreePlacement(
+                treatmentPreferred,
+                new SizeF(treatmentPreferred.Width, treatmentPreferred.Height),
+                layout.Occupancy,
+                reserved,
+                drawingBounds);
+
             DrawHighlightedText(
                 graphics,
                 annotation.Treatment.Trim().ToUpperInvariant(),
@@ -133,6 +163,8 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
                 treatmentSize,
                 FontStyle.Bold,
                 StringAlignment.Center);
+
+            reserved.Add(Inflate(treatmentRect, 3f));
         }
 
         IReadOnlyList<DimensionAnnotation> dimensions = annotation.Dimensions
@@ -140,21 +172,30 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
             .Take(3)
             .ToArray();
 
-        float dimensionX = drawingBounds.Left + drawingBounds.Width * 0.68f;
-        float dimensionY = drawingBounds.Top + drawingBounds.Height * 0.15f;
-        float dimensionRowHeight = 38f;
-
         foreach (DimensionAnnotation dimension in dimensions)
         {
-            var dimensionRect = new RectangleF(
-                dimensionX,
-                dimensionY,
-                drawingBounds.Width * 0.18f,
-                dimensionRowHeight);
+            TextAnchor? anchor = FindDimensionAnchor(layout.TextAnchors, dimension.Axis);
+            string valueText = dimension.Value.Trim();
+            SizeF desiredSize = MeasureSingleLine(graphics, valueText, "Segoe UI", dimensionSize, FontStyle.Bold);
+
+            RectangleF preferredRect = anchor is null
+                ? new RectangleF(rightAnchor, topAnchor + 42f, desiredSize.Width + 10f, desiredSize.Height + 8f)
+                : new RectangleF(
+                    anchor.Bounds.Right + 6f,
+                    anchor.Bounds.Top - 2f,
+                    desiredSize.Width + 10f,
+                    desiredSize.Height + 8f);
+
+            RectangleF dimensionRect = FindFreePlacement(
+                preferredRect,
+                new SizeF(preferredRect.Width, preferredRect.Height),
+                layout.Occupancy,
+                reserved,
+                drawingBounds);
 
             DrawInlineValue(
                 graphics,
-                $"{dimension.Axis.Trim().ToUpperInvariant()} {dimension.Value.Trim()}",
+                valueText,
                 dimensionRect,
                 titleBrush,
                 "Segoe UI",
@@ -162,55 +203,77 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
                 FontStyle.Bold,
                 StringAlignment.Near);
 
-            dimensionY += dimensionRowHeight * 1.12f;
+            reserved.Add(Inflate(dimensionRect, 2f));
         }
 
-        float summaryTop = drawingBounds.Top + drawingBounds.Height * 0.56f;
-        float summaryRowHeight = 58f;
+        float summaryTop = Math.Max(
+            drawingBounds.Top + drawingBounds.Height * 0.46f,
+            treatmentRect.IsEmpty ? drawingBounds.Top + drawingBounds.Height * 0.46f : treatmentRect.Bottom + 14f);
+        float summaryLeft = rightAnchor;
+        float summaryRowGap = 10f;
+        float summaryColumnGap = 18f;
 
-        DrawStackedField(
+        RectangleF quantityRect = PlaceInlineFieldPair(
             graphics,
-            new RectangleF(drawingBounds.Left + drawingBounds.Width * 0.41f, summaryTop, drawingBounds.Width * 0.12f, summaryRowHeight),
-            "Quantity",
+            layout,
+            reserved,
+            drawingBounds,
+            summaryLeft,
+            summaryTop,
             annotation.Quantity,
+            "Quantity",
             mutedBrush,
             titleBrush,
-            "Segoe UI",
             labelSize,
-            valueSize);
+            valueSize,
+            "Segoe UI");
 
-        DrawStackedField(
+        RectangleF materialRect = PlaceInlineFieldPair(
             graphics,
-            new RectangleF(drawingBounds.Left + drawingBounds.Width * 0.58f, summaryTop, drawingBounds.Width * 0.20f, summaryRowHeight),
-            "Material",
+            layout,
+            reserved,
+            drawingBounds,
+            Math.Min(drawingBounds.Right - drawingBounds.Width * 0.18f, quantityRect.Right + summaryColumnGap),
+            summaryTop,
             annotation.Material,
+            "Material",
             mutedBrush,
             titleBrush,
-            "Segoe UI",
             labelSize,
-            valueSize);
+            valueSize,
+            "Segoe UI");
 
-        DrawStackedField(
+        float secondRowTop = Math.Max(quantityRect.Bottom, materialRect.Bottom) + summaryRowGap;
+
+        PlaceInlineFieldPair(
             graphics,
-            new RectangleF(drawingBounds.Left + drawingBounds.Width * 0.39f, drawingBounds.Top + drawingBounds.Height * 0.68f, drawingBounds.Width * 0.35f, summaryRowHeight),
-            "Delivery date",
+            layout,
+            reserved,
+            drawingBounds,
+            summaryLeft,
+            secondRowTop,
             annotation.DeliveryDate,
+            "Delivery date",
             mutedBrush,
             titleBrush,
-            "Segoe UI",
             labelSize,
-            valueSize);
+            valueSize,
+            "Segoe UI");
 
-        DrawStackedField(
+        PlaceInlineFieldPair(
             graphics,
-            new RectangleF(drawingBounds.Left + drawingBounds.Width * 0.39f, drawingBounds.Top + drawingBounds.Height * 0.77f, drawingBounds.Width * 0.40f, summaryRowHeight),
-            "Order number",
+            layout,
+            reserved,
+            drawingBounds,
+            Math.Min(drawingBounds.Right - drawingBounds.Width * 0.18f, summaryLeft + quantityRect.Width + summaryColumnGap),
+            secondRowTop,
             annotation.OrderNumber,
+            "Order number",
             mutedBrush,
             titleBrush,
-            "Segoe UI",
             labelSize,
-            valueSize);
+            valueSize,
+            "Segoe UI");
     }
 
     private static void DrawHighlightedText(
@@ -265,22 +328,40 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
         graphics.DrawString(text, font, textBrush, bounds, format);
     }
 
-    private static void DrawStackedField(
+    private static RectangleF PlaceInlineFieldPair(
         Graphics graphics,
-        RectangleF bounds,
-        string label,
+        PageLayoutAnalysis layout,
+        List<RectangleF> reserved,
+        RectangleF pageBounds,
+        float left,
+        float top,
         string value,
+        string label,
         Brush labelBrush,
         Brush valueBrush,
         string fontFamily,
         float labelMaxFontSize,
-        float valueMaxFontSize)
+        float valueMaxFontSize,
+        string valueFontFamily)
     {
-        float labelHeight = Math.Max(18f, bounds.Height * 0.40f);
-        var labelRect = new RectangleF(bounds.Left, bounds.Top, bounds.Width, labelHeight);
+        string normalizedLabel = label.Trim().ToUpperInvariant();
+        string normalizedValue = value.Trim();
+
+        SizeF labelSize = MeasureSingleLine(graphics, normalizedLabel, fontFamily, labelMaxFontSize, FontStyle.Bold);
+        SizeF valueSize = MeasureSingleLine(graphics, normalizedValue, valueFontFamily, valueMaxFontSize, FontStyle.Bold);
+        float gap = 8f;
+        SizeF combinedSize = new SizeF(labelSize.Width + gap + valueSize.Width + 6f, Math.Max(labelSize.Height, valueSize.Height) + 6f);
+
+        RectangleF preferred = new RectangleF(left, top, combinedSize.Width, combinedSize.Height);
+        RectangleF placed = FindFreePlacement(preferred, combinedSize, layout.Occupancy, reserved, pageBounds);
+
+        float labelWidth = Math.Max(labelSize.Width + 4f, placed.Width * 0.38f);
+        RectangleF labelRect = new RectangleF(placed.Left, placed.Top, labelWidth, placed.Height);
+        RectangleF valueRect = new RectangleF(placed.Left + labelWidth + 2f, placed.Top, Math.Max(0f, placed.Right - (placed.Left + labelWidth + 2f)), placed.Height);
+
         DrawInlineValue(
             graphics,
-            label.ToUpperInvariant(),
+            normalizedLabel,
             labelRect,
             labelBrush,
             fontFamily,
@@ -288,16 +369,18 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
             FontStyle.Bold,
             StringAlignment.Near);
 
-        var valueRect = new RectangleF(bounds.Left, bounds.Top + labelHeight - 1f, bounds.Width, Math.Max(18f, bounds.Height - labelHeight + 1f));
         DrawInlineValue(
             graphics,
-            value.Trim(),
+            normalizedValue,
             valueRect,
             valueBrush,
-            fontFamily,
+            valueFontFamily,
             valueMaxFontSize,
             FontStyle.Bold,
             StringAlignment.Near);
+
+        reserved.Add(Inflate(placed, 2f));
+        return placed;
     }
 
     private static Font CreateBestFitFont(
@@ -343,5 +426,294 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
         float y = destinationBounds.Top + ((destinationBounds.Height - height) / 2);
 
         return new RectangleF(x, y, width, height);
+    }
+
+    private static SizeF MeasureSingleLine(Graphics graphics, string text, string fontFamily, float maxFontSize, FontStyle style)
+    {
+        using Font font = CreateBestFitFont(graphics, text, fontFamily, maxFontSize, Math.Max(8f, maxFontSize - 4f), style, 2000f);
+        SizeF measured = graphics.MeasureString(text, font, int.MaxValue, StringFormat.GenericTypographic);
+        return measured;
+    }
+
+    private static RectangleF FindFreePlacement(
+        RectangleF preferred,
+        SizeF size,
+        OccupancyGrid occupancy,
+        IReadOnlyList<RectangleF> reserved,
+        RectangleF pageBounds)
+    {
+        foreach (PointF offset in GenerateOffsets(96f, 8f))
+        {
+            RectangleF candidate = new RectangleF(preferred.Left + offset.X, preferred.Top + offset.Y, size.Width, size.Height);
+            if (!IsInsidePage(candidate, pageBounds))
+                continue;
+
+            if (occupancy.Intersects(candidate) || IntersectsAny(candidate, reserved))
+                continue;
+
+            return candidate;
+        }
+
+        return ClampToPage(preferred, pageBounds);
+    }
+
+    private static IEnumerable<PointF> GenerateOffsets(float maxDistance, float step)
+    {
+        yield return PointF.Empty;
+
+        for (float radius = step; radius <= maxDistance; radius += step)
+        {
+            for (float dx = -radius; dx <= radius; dx += step)
+            {
+                float dy = radius - Math.Abs(dx);
+
+                if (dy < 0f)
+                    continue;
+
+                yield return new PointF(dx, -dy);
+                if (dy > 0f)
+                    yield return new PointF(dx, dy);
+            }
+        }
+    }
+
+    private static bool IsInsidePage(RectangleF candidate, RectangleF pageBounds)
+    {
+        return candidate.Left >= pageBounds.Left
+            && candidate.Top >= pageBounds.Top
+            && candidate.Right <= pageBounds.Right
+            && candidate.Bottom <= pageBounds.Bottom;
+    }
+
+    private static RectangleF ClampToPage(RectangleF candidate, RectangleF pageBounds)
+    {
+        float x = candidate.Left;
+        float y = candidate.Top;
+
+        if (x < pageBounds.Left)
+            x = pageBounds.Left;
+        else if (x + candidate.Width > pageBounds.Right)
+            x = pageBounds.Right - candidate.Width;
+
+        if (y < pageBounds.Top)
+            y = pageBounds.Top;
+        else if (y + candidate.Height > pageBounds.Bottom)
+            y = pageBounds.Bottom - candidate.Height;
+
+        return new RectangleF(x, y, candidate.Width, candidate.Height);
+    }
+
+    private static bool IntersectsAny(RectangleF candidate, IReadOnlyList<RectangleF> reserved)
+    {
+        foreach (RectangleF rectangle in reserved)
+        {
+            if (rectangle.IntersectsWith(candidate))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static RectangleF Inflate(RectangleF rectangle, float padding)
+    {
+        return new RectangleF(
+            rectangle.Left - padding,
+            rectangle.Top - padding,
+            rectangle.Width + padding * 2f,
+            rectangle.Height + padding * 2f);
+    }
+
+    private static RectangleF FindOccupiedBounds(Bitmap bitmap)
+    {
+        int minX = bitmap.Width;
+        int minY = bitmap.Height;
+        int maxX = -1;
+        int maxY = -1;
+
+        for (int y = 0; y < bitmap.Height; y += 2)
+        {
+            for (int x = 0; x < bitmap.Width; x += 2)
+            {
+                if (!IsInkPixel(bitmap.GetPixel(x, y)))
+                    continue;
+
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+        }
+
+        if (maxX < 0 || maxY < 0)
+            return new RectangleF(0, 0, bitmap.Width, bitmap.Height);
+
+        return RectangleF.FromLTRB(minX, minY, maxX + 1, maxY + 1);
+    }
+
+    private static bool IsInkPixel(Color color)
+    {
+        return color.A > 0 && (color.R < 245 || color.G < 245 || color.B < 245);
+    }
+
+    private static IReadOnlyList<TextAnchor> ExtractTextAnchors(string emfPath, RectangleF drawingBounds)
+    {
+        using var image = Image.FromFile(emfPath);
+        if (image is not Metafile metafile)
+            return Array.Empty<TextAnchor>();
+
+        GraphicsUnit unit = GraphicsUnit.Pixel;
+        RectangleF sourceBounds = image.GetBounds(ref unit);
+        if (sourceBounds.Width <= 0f || sourceBounds.Height <= 0f)
+            return Array.Empty<TextAnchor>();
+
+        var anchors = new List<TextAnchor>();
+        using var probeBitmap = new Bitmap(1, 1);
+        using var probeGraphics = Graphics.FromImage(probeBitmap);
+
+        Graphics.EnumerateMetafileProc callback = (recordType, flags, dataSize, data, callbackData) =>
+        {
+            if ((int)recordType != 0x401C || data == IntPtr.Zero || dataSize < 28)
+                return true;
+
+            byte[] bytes = new byte[dataSize];
+            Marshal.Copy(data, bytes, 0, dataSize);
+
+            int length = BitConverter.ToInt32(bytes, 8);
+            int stringByteCount = length * 2;
+            if (length <= 0 || bytes.Length < 28 + stringByteCount)
+                return true;
+
+            string text = Encoding.Unicode.GetString(bytes, 28, stringByteCount).Trim('\0', ' ', '\t', '\r', '\n');
+            if (string.IsNullOrWhiteSpace(text))
+                return true;
+
+            float left = BitConverter.ToSingle(bytes, 12);
+            float top = BitConverter.ToSingle(bytes, 16);
+            float width = BitConverter.ToSingle(bytes, 20);
+            float height = BitConverter.ToSingle(bytes, 24);
+
+            RectangleF sourceRect = new RectangleF(left, top, width, height);
+            RectangleF mappedRect = MapRectToPage(sourceRect, sourceBounds, drawingBounds);
+            anchors.Add(new TextAnchor(NormalizeCalloutText(text), mappedRect));
+            return true;
+        };
+
+        probeGraphics.EnumerateMetafile(metafile, new PointF(0f, 0f), callback);
+        return anchors;
+    }
+
+    private static RectangleF MapRectToPage(RectangleF sourceRect, RectangleF sourceBounds, RectangleF destinationBounds)
+    {
+        float widthScale = sourceBounds.Width <= 0f ? 1f : destinationBounds.Width / sourceBounds.Width;
+        float heightScale = sourceBounds.Height <= 0f ? 1f : destinationBounds.Height / sourceBounds.Height;
+
+        float x = destinationBounds.Left + ((sourceRect.Left - sourceBounds.Left) * widthScale);
+        float y = destinationBounds.Top + ((sourceRect.Top - sourceBounds.Top) * heightScale);
+        float width = sourceRect.Width * widthScale;
+        float height = sourceRect.Height * heightScale;
+
+        return new RectangleF(x, y, width, height);
+    }
+
+    private static string NormalizeCalloutText(string text)
+    {
+        var builder = new StringBuilder(text.Length);
+
+        foreach (char character in text.Trim().ToUpperInvariant())
+        {
+            if (char.IsLetterOrDigit(character))
+                builder.Append(character);
+        }
+
+        return builder.ToString();
+    }
+
+    private static TextAnchor? FindDimensionAnchor(IReadOnlyList<TextAnchor> anchors, string axis)
+    {
+        string normalizedAxis = NormalizeCalloutText(axis);
+        if (string.IsNullOrWhiteSpace(normalizedAxis))
+            return null;
+
+        TextAnchor? best = null;
+
+        foreach (TextAnchor anchor in anchors)
+        {
+            if (!string.Equals(anchor.Text, normalizedAxis, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (best is null || anchor.Bounds.Right > best.Value.Bounds.Right)
+                best = anchor;
+        }
+
+        return best;
+    }
+
+    private sealed record PageLayoutAnalysis(OccupancyGrid Occupancy, RectangleF OccupiedBounds, IReadOnlyList<TextAnchor> TextAnchors);
+
+    private sealed record TextAnchor(string Text, RectangleF Bounds);
+
+    private sealed class OccupancyGrid
+    {
+        private readonly bool[] occupiedCells;
+
+        public OccupancyGrid(Bitmap bitmap, int cellSize = 6)
+        {
+            CellSize = Math.Max(2, cellSize);
+            Columns = Math.Max(1, (int)Math.Ceiling(bitmap.Width / (double)CellSize));
+            Rows = Math.Max(1, (int)Math.Ceiling(bitmap.Height / (double)CellSize));
+            occupiedCells = new bool[Columns * Rows];
+
+            for (int y = 0; y < bitmap.Height; y += 2)
+            {
+                for (int x = 0; x < bitmap.Width; x += 2)
+                {
+                    if (!IsInkPixel(bitmap.GetPixel(x, y)))
+                        continue;
+
+                    int column = Math.Min(Columns - 1, x / CellSize);
+                    int row = Math.Min(Rows - 1, y / CellSize);
+                    occupiedCells[(row * Columns) + column] = true;
+                }
+            }
+        }
+
+        public int CellSize { get; }
+
+        public int Columns { get; }
+
+        public int Rows { get; }
+
+        public bool Intersects(RectangleF rectangle)
+        {
+            int minColumn = ClampCellIndex((int)Math.Floor(rectangle.Left / CellSize), Columns);
+            int maxColumn = ClampCellIndex((int)Math.Ceiling(rectangle.Right / CellSize), Columns);
+            int minRow = ClampCellIndex((int)Math.Floor(rectangle.Top / CellSize), Rows);
+            int maxRow = ClampCellIndex((int)Math.Ceiling(rectangle.Bottom / CellSize), Rows);
+
+            if (rectangle.Left < 0f || rectangle.Top < 0f)
+                return true;
+
+            for (int row = minRow; row <= maxRow; row++)
+            {
+                for (int column = minColumn; column <= maxColumn; column++)
+                {
+                    if (occupiedCells[(row * Columns) + column])
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static int ClampCellIndex(int value, int limit)
+        {
+            if (value < 0)
+                return 0;
+
+            if (value >= limit)
+                return limit - 1;
+
+            return value;
+        }
     }
 }

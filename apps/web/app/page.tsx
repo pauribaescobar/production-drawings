@@ -7,33 +7,13 @@ type ApiError = {
   details?: string;
 };
 
-type PreflightReport = {
-  orderNumber: string;
-  matchedDfts: Array<{
-    dftFileName: string;
-    dftPath: string;
-    quantity: string;
-    material: string;
-    treatment?: string | null;
-    deliveryDate: string;
-    dimensions: Record<string, string>;
-  }>;
-  missingDfts: Array<{
-    dftFileName: string;
-    dftPath: string;
-  }>;
-  warnings: string[];
-  readyForGeneration: boolean;
-};
-
 export default function Page() {
   const [orderPdf, setOrderPdf] = useState<File | null>(null);
   const [drawingsZip, setDrawingsZip] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [report, setReport] = useState<PreflightReport | null>(null);
   const [status, setStatus] = useState<string>(
-    "Sube el PDF del pedido y el ZIP de dibujos para comprobar coincidencias.",
+    "Sube el PDF del pedido y el ZIP de dibujos para generar el PDF final.",
   );
 
   const ready = Boolean(orderPdf && drawingsZip);
@@ -51,35 +31,34 @@ export default function Page() {
 
     setIsSubmitting(true);
     setError(null);
-    setReport(null);
-    setStatus("Comprobando coincidencias del pedido...");
+    setStatus("Generando el PDF final...");
 
     try {
-      const response = await fetch("/api/generate?mode=preflight", {
+      const response = await fetch("/api/generate", {
         method: "POST",
         body: formData,
       });
 
       if (!response.ok) {
-        const payload = (await response.json()) as ApiError;
-        const message = payload.details
-          ? `${payload.error} ${payload.details}`
-          : payload.error;
+        let message = "No se pudo generar el PDF final.";
+        try {
+          const payload = (await response.json()) as ApiError;
+          message = payload.details ? `${payload.error} ${payload.details}` : payload.error;
+        } catch {
+          message = `No se pudo generar el PDF final. HTTP ${response.status}.`;
+        }
         setError(message);
-        setStatus("No se pudo generar el reporte de coincidencias.");
+        setStatus("La generación falló antes de recibir el PDF.");
         return;
       }
 
-      const payload = (await response.json()) as PreflightReport;
-      setReport(payload);
-      setStatus(
-        payload.readyForGeneration
-          ? "El pedido está listo para la generación final."
-          : "Faltan coincidencias antes de generar el PDF final.",
-      );
+      const pdfBlob = await response.blob();
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+      window.open(pdfUrl, "_blank", "noopener,noreferrer");
+      setStatus("PDF final generado y abierto en una nueva pestaña.");
     } catch {
-      setError("No se pudo conectar con la ruta de preflight.");
-      setStatus("La comprobación falló antes de recibir el reporte.");
+      setError("No se pudo conectar con la ruta de generación.");
+      setStatus("La generación falló antes de abrir el PDF.");
     } finally {
       setIsSubmitting(false);
     }
@@ -89,11 +68,11 @@ export default function Page() {
     <main className="page-shell">
       <section className="hero">
         <div className="eyebrow">production-drawings</div>
-        <h1>Comprobar coincidencias del pedido</h1>
+        <h1>Generar planos nuevos</h1>
         <p>
           Sube el PDF del pedido y el ZIP de dibujos. El backend extrae los
-          datos del pedido, analiza el contenido del ZIP y devuelve un reporte
-          de coincidencias antes de pasar a la generación final.
+          datos del pedido, analiza el contenido del ZIP y devuelve el PDF
+          final directamente.
         </p>
       </section>
 
@@ -134,43 +113,16 @@ export default function Page() {
             </button>
           </div>
         </form>
-
         {error ? (
           <section className="response-panel response-panel-error" aria-live="polite">
             <div className="response-label">Error</div>
             <pre>{error}</pre>
           </section>
         ) : null}
-
-        {report ? (
-          <section className="response-panel" aria-live="polite">
-            <div className="response-label">Reporte de preflight</div>
-            <div className="summary-grid">
-              <div className="summary-item">
-                <span className="summary-key">orderNumber</span>
-                <strong>{report.orderNumber}</strong>
-              </div>
-              <div className="summary-item">
-                <span className="summary-key">readyForGeneration</span>
-                <strong>{report.readyForGeneration ? "true" : "false"}</strong>
-              </div>
-              <div className="summary-item summary-item-wide">
-                <span className="summary-key">matchedDfts</span>
-                <strong>{report.matchedDfts.length}</strong>
-              </div>
-              <div className="summary-item summary-item-wide">
-                <span className="summary-key">missingDfts</span>
-                <strong>{report.missingDfts.length}</strong>
-              </div>
-            </div>
-            <pre>{JSON.stringify(report, null, 2)}</pre>
-          </section>
-        ) : null}
       </section>
 
       <section className="footer-note">
-        Un solo botón ejecuta la comprobación de pedido, ZIP y matching. La
-        generación final sigue siendo el siguiente paso.
+        Un solo botón ejecuta la generación final y abre el PDF resultante en una nueva pestaña.
       </section>
     </main>
   );
