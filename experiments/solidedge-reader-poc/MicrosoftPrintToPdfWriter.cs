@@ -104,7 +104,7 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
         graphics.DrawImage(image, fitted);
 
         PageLayoutAnalysis layout = BuildPageLayout(emfPath, pageBitmap, fitted);
-        DrawOverlayAnnotations(graphics, fitted, annotation, layout);
+        DrawOverlayAnnotations(graphics, fitted, pageBounds, annotation, layout);
     }
 
     private static PageLayoutAnalysis BuildPageLayout(string emfPath, Bitmap pageBitmap, RectangleF drawingBounds)
@@ -118,6 +118,7 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
     private static void DrawOverlayAnnotations(
         Graphics graphics,
         RectangleF drawingBounds,
+        RectangleF pageBounds,
         SheetAnnotation annotation,
         PageLayoutAnalysis layout)
     {
@@ -204,55 +205,48 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
             reserved.Add(Inflate(dimensionRect, 2f));
         }
 
-        float summaryTop = Math.Max(
-            drawingBounds.Top + drawingBounds.Height * 0.46f,
-            treatmentRect.IsEmpty ? drawingBounds.Top + drawingBounds.Height * 0.46f : treatmentRect.Bottom + 14f);
-        float summaryLeft = rightAnchor;
-        float summaryRowGap = 10f;
-        float summaryColumnGap = 18f;
+        float summaryRowHeight = Math.Max(21f, valueSize + 8f);
+        float summaryRowGap = 8f;
+        float summaryColumnWidth = Math.Min(
+            Math.Max(132f, drawingBounds.Width * 0.22f),
+            Math.Max(1f, pageBounds.Width - 24f));
+        float summaryPreferredLeft = Math.Max(
+            layout.OccupiedBounds.Right + 12f,
+            drawingBounds.Left + drawingBounds.Width * 0.72f);
+        float summaryLeft = Math.Min(summaryPreferredLeft, pageBounds.Right - 12f - summaryColumnWidth);
+        summaryLeft = Math.Max(summaryLeft, pageBounds.Left + 12f);
 
-        RectangleF quantityRect = PlaceInlineValueOverlay(
+        float summaryPreferredTop = Math.Max(
+            drawingBounds.Top + drawingBounds.Height * 0.46f,
+            treatmentRect.IsEmpty ? drawingBounds.Top + drawingBounds.Height * 0.46f : treatmentRect.Bottom + 16f);
+        float summaryStackHeight = (summaryRowHeight * 4f) + (summaryRowGap * 3f);
+        float summaryTop = Math.Min(summaryPreferredTop, pageBounds.Bottom - 12f - summaryStackHeight);
+        summaryTop = Math.Max(summaryTop, drawingBounds.Top + 12f);
+
+        DrawSummaryValueInZone(
             graphics,
-            layout,
-            reserved,
-            drawingBounds,
-            summaryLeft,
-            summaryTop,
+            new RectangleF(summaryLeft, summaryTop, summaryColumnWidth, summaryRowHeight),
             annotation.Quantity,
             titleBrush,
             valueSize);
 
-        RectangleF materialRect = PlaceInlineValueOverlay(
+        DrawSummaryValueInZone(
             graphics,
-            layout,
-            reserved,
-            drawingBounds,
-            Math.Min(drawingBounds.Right - drawingBounds.Width * 0.18f, quantityRect.Right + summaryColumnGap),
-            summaryTop,
+            new RectangleF(summaryLeft, summaryTop + summaryRowHeight + summaryRowGap, summaryColumnWidth, summaryRowHeight),
             annotation.Material,
             titleBrush,
             valueSize);
 
-        float secondRowTop = Math.Max(quantityRect.Bottom, materialRect.Bottom) + summaryRowGap;
-
-        PlaceInlineValueOverlay(
+        DrawSummaryValueInZone(
             graphics,
-            layout,
-            reserved,
-            drawingBounds,
-            summaryLeft,
-            secondRowTop,
+            new RectangleF(summaryLeft, summaryTop + (summaryRowHeight + summaryRowGap) * 2f, summaryColumnWidth, summaryRowHeight),
             annotation.DeliveryDate,
             titleBrush,
             valueSize);
 
-        PlaceInlineValueOverlay(
+        DrawSummaryValueInZone(
             graphics,
-            layout,
-            reserved,
-            drawingBounds,
-            Math.Min(drawingBounds.Right - drawingBounds.Width * 0.18f, summaryLeft + quantityRect.Width + summaryColumnGap),
-            secondRowTop,
+            new RectangleF(summaryLeft, summaryTop + (summaryRowHeight + summaryRowGap) * 3f, summaryColumnWidth, summaryRowHeight),
             annotation.OrderNumber,
             titleBrush,
             valueSize);
@@ -310,38 +304,32 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
         graphics.DrawString(text, font, textBrush, bounds, format);
     }
 
-    private static RectangleF PlaceInlineValueOverlay(
+    private static void DrawSummaryValueInZone(
         Graphics graphics,
-        PageLayoutAnalysis layout,
-        List<RectangleF> reserved,
-        RectangleF pageBounds,
-        float left,
-        float top,
+        RectangleF zone,
         string value,
         Brush valueBrush,
         float valueMaxFontSize)
     {
         string normalizedValue = value.Trim();
         if (string.IsNullOrWhiteSpace(normalizedValue))
-            return RectangleF.Empty;
+            return;
 
-        SizeF valueSize = MeasureSingleLine(graphics, normalizedValue, "Segoe UI", valueMaxFontSize, FontStyle.Bold);
-        SizeF desiredSize = new SizeF(valueSize.Width + 8f, valueSize.Height + 6f);
-        RectangleF preferred = new RectangleF(left, top, desiredSize.Width, desiredSize.Height);
-        RectangleF placed = FindFreePlacement(preferred, desiredSize, layout.Occupancy, reserved, pageBounds);
+        RectangleF textBounds = new RectangleF(
+            zone.Left + 2f,
+            zone.Top,
+            Math.Max(1f, zone.Width - 4f),
+            zone.Height);
 
         DrawInlineValue(
             graphics,
             normalizedValue,
-            placed,
+            textBounds,
             valueBrush,
             "Segoe UI",
             valueMaxFontSize,
             FontStyle.Bold,
             StringAlignment.Near);
-
-        reserved.Add(Inflate(placed, 2f));
-        return placed;
     }
 
     private static Font CreateBestFitFont(

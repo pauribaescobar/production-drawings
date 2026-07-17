@@ -9,7 +9,7 @@ Windows-only proof of concept for converting a Solid Edge Draft (`.dft`) into pe
 3. `DraftEmfExporter.cs` validates the input, opens the draft with `SolidEdge.Community.Reader`, and writes `sheet-001.emf`, `sheet-002.emf`, and so on.
 4. `ParsedOrderDocument.cs` loads the parsed order JSON and exposes the order-level fields used in the annotation block.
 5. `SheetAnnotation.cs` builds one annotation payload per sheet from the parsed order data.
-6. `MicrosoftPrintToPdfWriter.cs` renders each EMF page, overlays the treatment, dimension values, and value-only business fields on top of the original drawing in the available free space, and writes the final PDF as `final.pdf` using managed PDF generation.
+6. `MicrosoftPrintToPdfWriter.cs` renders each EMF page, overlays the treatment, dimension values, and value-only business fields, and places the four summary fields in fixed right-side zones on top of the original drawing before writing the final PDF as `final.pdf` using managed PDF generation.
 7. `Program.cs` emits a JSON worker result to stdout.
 
 ## Files in this experiment
