@@ -10,10 +10,10 @@ Implement the concrete annotation layout defined in `TECH_SPEC.md` so the worker
 
 Implement the layout contract for the annotation block, including:
 
-* the upper-right / right-hand block placement
+* overlaying values directly onto the drawing area, without a detached right-hand block
 * the treatment line highlight
-* labeled dimensions
-* quantity, material, delivery date, and order number
+* dimension values anchored to the existing callouts
+* quantity, material, delivery date, and order number as value-only overlays
 * omission of the piece reference from the block
 
 ## Ownership / Files to Inspect First
@@ -36,6 +36,7 @@ Implement the layout contract for the annotation block, including:
 * Do not invent extra annotations.
 * Do not duplicate the piece reference in the block.
 * Omit missing dimensions instead of inventing placeholders.
+* Do not redraw the callout letters or add placeholder labels such as `QUANTITY` or `MATERIAL`.
 * Keep the layout recognizably close to the product example.
 
 ## Acceptance Criteria
@@ -44,6 +45,7 @@ Implement the layout contract for the annotation block, including:
 * The block includes treatment, dimensions, quantity, material, delivery date, and order number.
 * The block is placed and styled according to the spec.
 * The piece reference is absent from the annotation block.
+* No placeholder field labels or repeated callout letters are drawn.
 * The output is usable as the standard template for real drawings.
 
 ## Report-Back Requirements
@@ -55,4 +57,3 @@ Report back with:
 * how missing dimensions are handled
 * any changes needed in worker data shaping
 * any mismatch between the example image and the implemented spec
-

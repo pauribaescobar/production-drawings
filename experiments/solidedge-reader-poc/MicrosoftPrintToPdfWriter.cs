@@ -122,10 +122,8 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
         PageLayoutAnalysis layout)
     {
         using var titleBrush = new SolidBrush(Color.FromArgb(30, 30, 30));
-        using var mutedBrush = new SolidBrush(Color.FromArgb(90, 90, 90));
         using var highlightBrush = new SolidBrush(Color.FromArgb(140, 255, 245, 90));
 
-        float labelSize = 8.0f;
         float valueSize = 11.0f;
         float treatmentSize = 15.0f;
         float dimensionSize = 10.5f;
@@ -213,7 +211,7 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
         float summaryRowGap = 10f;
         float summaryColumnGap = 18f;
 
-        RectangleF quantityRect = PlaceInlineFieldPair(
+        RectangleF quantityRect = PlaceInlineValueOverlay(
             graphics,
             layout,
             reserved,
@@ -221,14 +219,10 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
             summaryLeft,
             summaryTop,
             annotation.Quantity,
-            "Quantity",
-            mutedBrush,
             titleBrush,
-            labelSize,
-            valueSize,
-            "Segoe UI");
+            valueSize);
 
-        RectangleF materialRect = PlaceInlineFieldPair(
+        RectangleF materialRect = PlaceInlineValueOverlay(
             graphics,
             layout,
             reserved,
@@ -236,16 +230,12 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
             Math.Min(drawingBounds.Right - drawingBounds.Width * 0.18f, quantityRect.Right + summaryColumnGap),
             summaryTop,
             annotation.Material,
-            "Material",
-            mutedBrush,
             titleBrush,
-            labelSize,
-            valueSize,
-            "Segoe UI");
+            valueSize);
 
         float secondRowTop = Math.Max(quantityRect.Bottom, materialRect.Bottom) + summaryRowGap;
 
-        PlaceInlineFieldPair(
+        PlaceInlineValueOverlay(
             graphics,
             layout,
             reserved,
@@ -253,14 +243,10 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
             summaryLeft,
             secondRowTop,
             annotation.DeliveryDate,
-            "Delivery date",
-            mutedBrush,
             titleBrush,
-            labelSize,
-            valueSize,
-            "Segoe UI");
+            valueSize);
 
-        PlaceInlineFieldPair(
+        PlaceInlineValueOverlay(
             graphics,
             layout,
             reserved,
@@ -268,12 +254,8 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
             Math.Min(drawingBounds.Right - drawingBounds.Width * 0.18f, summaryLeft + quantityRect.Width + summaryColumnGap),
             secondRowTop,
             annotation.OrderNumber,
-            "Order number",
-            mutedBrush,
             titleBrush,
-            labelSize,
-            valueSize,
-            "Segoe UI");
+            valueSize);
     }
 
     private static void DrawHighlightedText(
@@ -328,7 +310,7 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
         graphics.DrawString(text, font, textBrush, bounds, format);
     }
 
-    private static RectangleF PlaceInlineFieldPair(
+    private static RectangleF PlaceInlineValueOverlay(
         Graphics graphics,
         PageLayoutAnalysis layout,
         List<RectangleF> reserved,
@@ -336,45 +318,24 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
         float left,
         float top,
         string value,
-        string label,
-        Brush labelBrush,
         Brush valueBrush,
-        string fontFamily,
-        float labelMaxFontSize,
-        float valueMaxFontSize,
-        string valueFontFamily)
+        float valueMaxFontSize)
     {
-        string normalizedLabel = label.Trim().ToUpperInvariant();
         string normalizedValue = value.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedValue))
+            return RectangleF.Empty;
 
-        SizeF labelSize = MeasureSingleLine(graphics, normalizedLabel, fontFamily, labelMaxFontSize, FontStyle.Bold);
-        SizeF valueSize = MeasureSingleLine(graphics, normalizedValue, valueFontFamily, valueMaxFontSize, FontStyle.Bold);
-        float gap = 8f;
-        SizeF combinedSize = new SizeF(labelSize.Width + gap + valueSize.Width + 6f, Math.Max(labelSize.Height, valueSize.Height) + 6f);
-
-        RectangleF preferred = new RectangleF(left, top, combinedSize.Width, combinedSize.Height);
-        RectangleF placed = FindFreePlacement(preferred, combinedSize, layout.Occupancy, reserved, pageBounds);
-
-        float labelWidth = Math.Max(labelSize.Width + 4f, placed.Width * 0.38f);
-        RectangleF labelRect = new RectangleF(placed.Left, placed.Top, labelWidth, placed.Height);
-        RectangleF valueRect = new RectangleF(placed.Left + labelWidth + 2f, placed.Top, Math.Max(0f, placed.Right - (placed.Left + labelWidth + 2f)), placed.Height);
-
-        DrawInlineValue(
-            graphics,
-            normalizedLabel,
-            labelRect,
-            labelBrush,
-            fontFamily,
-            labelMaxFontSize,
-            FontStyle.Bold,
-            StringAlignment.Near);
+        SizeF valueSize = MeasureSingleLine(graphics, normalizedValue, "Segoe UI", valueMaxFontSize, FontStyle.Bold);
+        SizeF desiredSize = new SizeF(valueSize.Width + 8f, valueSize.Height + 6f);
+        RectangleF preferred = new RectangleF(left, top, desiredSize.Width, desiredSize.Height);
+        RectangleF placed = FindFreePlacement(preferred, desiredSize, layout.Occupancy, reserved, pageBounds);
 
         DrawInlineValue(
             graphics,
             normalizedValue,
-            valueRect,
+            placed,
             valueBrush,
-            valueFontFamily,
+            "Segoe UI",
             valueMaxFontSize,
             FontStyle.Bold,
             StringAlignment.Near);
