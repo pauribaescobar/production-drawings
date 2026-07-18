@@ -16,6 +16,19 @@ Implement the layout contract for the annotation block, including:
 * quantity, material, delivery date, and order number as value-only overlays
 * omission of the piece reference from the block
 
+## Placement rules
+
+Use relative zones per field type instead of one generic free-space search:
+
+* `treatment`: upper-right free area of the drawing with a tight highlight
+* `dimensions`: next to the matching blue callout, using the rightmost instance when duplicated
+* `quantity`: lower-right free region above the title block
+* `material`: a separate right-side summary zone, not overlapping `quantity`
+* `delivery date`: its own zone below `quantity` and `material`
+* `order number`: its own final zone below `delivery date`
+
+Do not redraw the callout letters themselves or use placeholder field labels.
+
 ## Ownership / Files to Inspect First
 
 * `TECH_SPEC.md`

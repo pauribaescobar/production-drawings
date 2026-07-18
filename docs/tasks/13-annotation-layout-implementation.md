@@ -53,6 +53,34 @@ The block must include:
 * if a dimension is missing, omit that row
 * do not invent extra annotations
 
+## Placement rules
+
+Use relative zones per field type instead of one generic free-space search:
+
+* `treatment`
+  * upper-right free area of the drawing
+  * tight yellow highlight around the value
+  * never cover the drawing border or title block
+
+* `dimensions`
+  * next to the matching blue callout
+  * if the same letter appears multiple times, choose the instance with the highest `x` coordinate
+  * render only the resolved value, not the callout letter
+
+* `quantity`
+  * lower-right free region above the title block
+  * its own dedicated zone
+
+* `material`
+  * dedicated zone in the right-side summary column, separated from `quantity`
+
+* `delivery date`
+  * dedicated zone below `quantity` and `material`
+
+* `order number`
+  * dedicated zone below `delivery date`
+  * keep it aligned with the summary column, but not overlapping the other fields
+
 ## Acceptance criteria
 
 * the worker overlays concrete annotation text instead of generic placeholder text
@@ -61,4 +89,5 @@ The block must include:
 * no annotation text obscures the original drawing text
 * dimensions are rendered as values attached to their matching labels rather than as a detached table
 * no placeholder labels or rows are drawn under the annotation values
+* each summary field occupies its own relative zone and does not overlap the others
 * the block is usable as the standard template for real drawings

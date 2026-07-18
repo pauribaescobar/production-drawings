@@ -130,31 +130,24 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
         float dimensionSize = 10.5f;
 
         var reserved = new List<RectangleF>();
-        float rightAnchor = Math.Max(
-            drawingBounds.Left + drawingBounds.Width * 0.66f,
-            layout.OccupiedBounds.Right + 12f);
-
-        if (rightAnchor > drawingBounds.Right - drawingBounds.Width * 0.16f)
-            rightAnchor = drawingBounds.Right - drawingBounds.Width * 0.16f;
-
-        float topAnchor = Math.Max(drawingBounds.Top + 8f, layout.OccupiedBounds.Top + 8f);
+        RectangleF treatmentZone = CreateTreatmentZone(drawingBounds);
         RectangleF treatmentRect = RectangleF.Empty;
-
-        var treatmentSizeF = MeasureSingleLine(graphics, annotation.Treatment?.Trim().ToUpperInvariant() ?? string.Empty, "Segoe UI", treatmentSize, FontStyle.Bold);
-        var treatmentPreferred = new RectangleF(rightAnchor, topAnchor, treatmentSizeF.Width + 16f, treatmentSizeF.Height + 12f);
 
         if (!string.IsNullOrWhiteSpace(annotation.Treatment))
         {
-            treatmentRect = FindFreePlacement(
-                treatmentPreferred,
-                new SizeF(treatmentPreferred.Width, treatmentPreferred.Height),
+            string treatmentText = annotation.Treatment.Trim().ToUpperInvariant();
+            treatmentRect = PlaceTreatment(
+                graphics,
+                treatmentText,
+                treatmentZone,
                 layout.Occupancy,
                 reserved,
-                drawingBounds);
+                pageBounds,
+                treatmentSize);
 
             DrawHighlightedText(
                 graphics,
-                annotation.Treatment!.Trim().ToUpperInvariant(),
+                treatmentText,
                 treatmentRect,
                 titleBrush,
                 highlightBrush,
@@ -168,29 +161,21 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
 
         IReadOnlyList<DimensionAnnotation> dimensions = annotation.Dimensions
             .Where(dimension => !string.IsNullOrWhiteSpace(dimension.Axis) && !string.IsNullOrWhiteSpace(dimension.Value))
-            .Take(3)
             .ToArray();
 
         foreach (DimensionAnnotation dimension in dimensions)
         {
             TextAnchor? anchor = FindDimensionAnchor(layout.TextAnchors, dimension.Axis);
             string valueText = dimension.Value.Trim();
-            SizeF desiredSize = MeasureSingleLine(graphics, valueText, "Segoe UI", dimensionSize, FontStyle.Bold);
-
-            RectangleF preferredRect = anchor is null
-                ? new RectangleF(rightAnchor, topAnchor + 42f, desiredSize.Width + 10f, desiredSize.Height + 8f)
-                : new RectangleF(
-                    anchor.Bounds.Right + 6f,
-                    anchor.Bounds.Top - 2f,
-                    desiredSize.Width + 10f,
-                    desiredSize.Height + 8f);
-
-            RectangleF dimensionRect = FindFreePlacement(
-                preferredRect,
-                new SizeF(preferredRect.Width, preferredRect.Height),
+            RectangleF dimensionRect = PlaceDimensionValue(
+                graphics,
+                valueText,
+                anchor,
+                drawingBounds,
+                pageBounds,
                 layout.Occupancy,
                 reserved,
-                drawingBounds);
+                dimensionSize);
 
             DrawInlineValue(
                 graphics,
@@ -205,51 +190,39 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
             reserved.Add(Inflate(dimensionRect, 2f));
         }
 
-        float summaryRowHeight = Math.Max(21f, valueSize + 8f);
-        float summaryRowGap = 8f;
-        float summaryColumnWidth = Math.Min(
-            Math.Max(132f, drawingBounds.Width * 0.22f),
-            Math.Max(1f, pageBounds.Width - 24f));
-        float summaryPreferredLeft = Math.Max(
-            layout.OccupiedBounds.Right + 12f,
-            drawingBounds.Left + drawingBounds.Width * 0.72f);
-        float summaryLeft = Math.Min(summaryPreferredLeft, pageBounds.Right - 12f - summaryColumnWidth);
-        summaryLeft = Math.Max(summaryLeft, pageBounds.Left + 12f);
-
-        float summaryPreferredTop = Math.Max(
-            drawingBounds.Top + drawingBounds.Height * 0.46f,
-            treatmentRect.IsEmpty ? drawingBounds.Top + drawingBounds.Height * 0.46f : treatmentRect.Bottom + 16f);
-        float summaryStackHeight = (summaryRowHeight * 4f) + (summaryRowGap * 3f);
-        float summaryTop = Math.Min(summaryPreferredTop, pageBounds.Bottom - 12f - summaryStackHeight);
-        summaryTop = Math.Max(summaryTop, drawingBounds.Top + 12f);
+        SummaryZones summaryZones = CreateSummaryZones(drawingBounds, pageBounds, valueSize, treatmentRect);
 
         DrawSummaryValueInZone(
             graphics,
-            new RectangleF(summaryLeft, summaryTop, summaryColumnWidth, summaryRowHeight),
+            summaryZones.QuantityZone,
             annotation.Quantity,
             titleBrush,
-            valueSize);
+            valueSize,
+            StringAlignment.Center);
 
         DrawSummaryValueInZone(
             graphics,
-            new RectangleF(summaryLeft, summaryTop + summaryRowHeight + summaryRowGap, summaryColumnWidth, summaryRowHeight),
+            summaryZones.MaterialZone,
             annotation.Material,
             titleBrush,
-            valueSize);
+            valueSize,
+            StringAlignment.Center);
 
         DrawSummaryValueInZone(
             graphics,
-            new RectangleF(summaryLeft, summaryTop + (summaryRowHeight + summaryRowGap) * 2f, summaryColumnWidth, summaryRowHeight),
+            summaryZones.DeliveryDateZone,
             annotation.DeliveryDate,
             titleBrush,
-            valueSize);
+            valueSize,
+            StringAlignment.Near);
 
         DrawSummaryValueInZone(
             graphics,
-            new RectangleF(summaryLeft, summaryTop + (summaryRowHeight + summaryRowGap) * 3f, summaryColumnWidth, summaryRowHeight),
+            summaryZones.OrderNumberZone,
             annotation.OrderNumber,
             titleBrush,
-            valueSize);
+            valueSize,
+            StringAlignment.Near);
     }
 
     private static void DrawHighlightedText(
@@ -309,7 +282,8 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
         RectangleF zone,
         string value,
         Brush valueBrush,
-        float valueMaxFontSize)
+        float valueMaxFontSize,
+        StringAlignment alignment)
     {
         string normalizedValue = value.Trim();
         if (string.IsNullOrWhiteSpace(normalizedValue))
@@ -329,7 +303,144 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
             "Segoe UI",
             valueMaxFontSize,
             FontStyle.Bold,
-            StringAlignment.Near);
+            alignment);
+    }
+
+    private static RectangleF CreateTreatmentZone(RectangleF drawingBounds)
+    {
+        float zoneWidth = Math.Max(160f, drawingBounds.Width * 0.24f);
+        float zoneHeight = Math.Max(44f, drawingBounds.Height * 0.10f);
+        float left = drawingBounds.Right - Math.Max(12f, drawingBounds.Width * 0.03f) - zoneWidth;
+        float top = drawingBounds.Top + Math.Max(10f, drawingBounds.Height * 0.03f);
+
+        return new RectangleF(left, top, zoneWidth, zoneHeight);
+    }
+
+    private static SummaryZones CreateSummaryZones(
+        RectangleF drawingBounds,
+        RectangleF pageBounds,
+        float valueMaxFontSize,
+        RectangleF treatmentRect)
+    {
+        float rowHeight = Math.Max(20f, valueMaxFontSize + 8f);
+        float rowGap = Math.Max(6f, drawingBounds.Height * 0.008f);
+        float columnWidth = Math.Max(148f, drawingBounds.Width * 0.26f);
+        float rightPadding = Math.Max(12f, drawingBounds.Width * 0.03f);
+
+        float left = drawingBounds.Right - rightPadding - columnWidth;
+        float desiredTop = drawingBounds.Top + (drawingBounds.Height * 0.56f);
+        float stackHeight = (rowHeight * 3f) + (rowGap * 2f);
+        float titleBlockReserve = Math.Max(94f, drawingBounds.Height * 0.11f);
+        float bottomLimit = drawingBounds.Bottom - titleBlockReserve;
+        float top = Math.Min(desiredTop, bottomLimit - stackHeight);
+        top = Math.Max(top, drawingBounds.Top + (drawingBounds.Height * 0.44f));
+
+        if (!treatmentRect.IsEmpty)
+            top = Math.Max(top, treatmentRect.Bottom + Math.Max(18f, drawingBounds.Height * 0.01f));
+
+        top = Math.Min(top, bottomLimit - stackHeight);
+
+        float quantityWidth = Math.Max(56f, (columnWidth - rowGap) * 0.44f);
+        float materialWidth = columnWidth - quantityWidth - rowGap;
+
+        RectangleF quantityZone = new RectangleF(left, top, quantityWidth, rowHeight);
+        RectangleF materialZone = new RectangleF(left + quantityWidth + rowGap, top, materialWidth, rowHeight);
+        RectangleF deliveryDateZone = new RectangleF(left, top + rowHeight + rowGap, columnWidth, rowHeight);
+        RectangleF orderNumberZone = new RectangleF(left, top + ((rowHeight + rowGap) * 2f), columnWidth, rowHeight);
+
+        quantityZone = ClampToPage(quantityZone, pageBounds);
+        materialZone = ClampToPage(materialZone, pageBounds);
+        deliveryDateZone = ClampToPage(deliveryDateZone, pageBounds);
+        orderNumberZone = ClampToPage(orderNumberZone, pageBounds);
+
+        return new SummaryZones(quantityZone, materialZone, deliveryDateZone, orderNumberZone);
+    }
+
+    private static RectangleF PlaceTreatment(
+        Graphics graphics,
+        string text,
+        RectangleF zone,
+        OccupancyGrid occupancy,
+        IReadOnlyList<RectangleF> reserved,
+        RectangleF pageBounds,
+        float maxFontSize)
+    {
+        SizeF measured = MeasureSingleLine(
+            graphics,
+            text,
+            "Segoe UI",
+            maxFontSize,
+            FontStyle.Bold,
+            Math.Max(1f, zone.Width - 16f));
+
+        float width = Math.Min(zone.Width, measured.Width + 16f);
+        float height = Math.Min(zone.Height, measured.Height + 12f);
+        float left = Math.Max(zone.Left, zone.Right - width);
+
+        foreach (float topOffset in new[] { 0f, 8f, 16f, 24f, 32f })
+        {
+            RectangleF candidate = new RectangleF(left, zone.Top + topOffset, width, height);
+            if (candidate.Bottom > zone.Bottom)
+                break;
+
+            if (CanPlace(candidate, pageBounds, occupancy, reserved))
+                return candidate;
+        }
+
+        RectangleF fallback = new RectangleF(left, zone.Top, width, height);
+        return ClampToPage(fallback, pageBounds);
+    }
+
+    private static RectangleF PlaceDimensionValue(
+        Graphics graphics,
+        string text,
+        TextAnchor? anchor,
+        RectangleF drawingBounds,
+        RectangleF pageBounds,
+        OccupancyGrid occupancy,
+        IReadOnlyList<RectangleF> reserved,
+        float maxFontSize)
+    {
+        SizeF measured = MeasureSingleLine(graphics, text, "Segoe UI", maxFontSize, FontStyle.Bold);
+        float width = measured.Width + 10f;
+        float height = measured.Height + 8f;
+
+        if (anchor is not null)
+        {
+            TextAnchor anchorValue = anchor!;
+
+            RectangleF rightCandidate = new RectangleF(anchorValue.Bounds.Right + 6f, anchorValue.Bounds.Top - 2f, width, height);
+            if (CanPlace(rightCandidate, pageBounds, occupancy, reserved))
+                return rightCandidate;
+
+            RectangleF leftCandidate = new RectangleF(anchorValue.Bounds.Left - 6f - width, anchorValue.Bounds.Top - 2f, width, height);
+            if (CanPlace(leftCandidate, pageBounds, occupancy, reserved))
+                return leftCandidate;
+
+            RectangleF belowCandidate = new RectangleF(anchorValue.Bounds.Right + 4f, anchorValue.Bounds.Bottom + 2f, width, height);
+            if (CanPlace(belowCandidate, pageBounds, occupancy, reserved))
+                return belowCandidate;
+
+            RectangleF aboveCandidate = new RectangleF(anchorValue.Bounds.Right + 4f, anchorValue.Bounds.Top - height - 2f, width, height);
+            if (CanPlace(aboveCandidate, pageBounds, occupancy, reserved))
+                return aboveCandidate;
+        }
+
+        float fallbackLeft = drawingBounds.Right - Math.Max(12f, drawingBounds.Width * 0.03f) - width;
+        float fallbackTop = drawingBounds.Top + Math.Max(40f, drawingBounds.Height * 0.16f);
+        RectangleF fallback = new RectangleF(fallbackLeft, fallbackTop, width, height);
+        return ClampToPage(fallback, pageBounds);
+    }
+
+    private static bool CanPlace(
+        RectangleF candidate,
+        RectangleF pageBounds,
+        OccupancyGrid occupancy,
+        IReadOnlyList<RectangleF> reserved)
+    {
+        return IsInsidePage(candidate, pageBounds)
+            && !occupancy.Intersects(candidate)
+            && !IntersectsAny(candidate, reserved);
     }
 
     private static Font CreateBestFitFont(
@@ -377,53 +488,17 @@ internal sealed class MicrosoftPrintToPdfWriter : IAnnotatedPdfWriter
         return new RectangleF(x, y, width, height);
     }
 
-    private static SizeF MeasureSingleLine(Graphics graphics, string text, string fontFamily, float maxFontSize, FontStyle style)
+    private static SizeF MeasureSingleLine(
+        Graphics graphics,
+        string text,
+        string fontFamily,
+        float maxFontSize,
+        FontStyle style,
+        float maxWidth = 2000f)
     {
-        using Font font = CreateBestFitFont(graphics, text, fontFamily, maxFontSize, Math.Max(8f, maxFontSize - 4f), style, 2000f);
+        using Font font = CreateBestFitFont(graphics, text, fontFamily, maxFontSize, Math.Max(8f, maxFontSize - 4f), style, maxWidth);
         SizeF measured = graphics.MeasureString(text, font, int.MaxValue, StringFormat.GenericTypographic);
         return measured;
-    }
-
-    private static RectangleF FindFreePlacement(
-        RectangleF preferred,
-        SizeF size,
-        OccupancyGrid occupancy,
-        IReadOnlyList<RectangleF> reserved,
-        RectangleF pageBounds)
-    {
-        foreach (PointF offset in GenerateOffsets(96f, 8f))
-        {
-            RectangleF candidate = new RectangleF(preferred.Left + offset.X, preferred.Top + offset.Y, size.Width, size.Height);
-            if (!IsInsidePage(candidate, pageBounds))
-                continue;
-
-            if (occupancy.Intersects(candidate) || IntersectsAny(candidate, reserved))
-                continue;
-
-            return candidate;
-        }
-
-        return ClampToPage(preferred, pageBounds);
-    }
-
-    private static IEnumerable<PointF> GenerateOffsets(float maxDistance, float step)
-    {
-        yield return PointF.Empty;
-
-        for (float radius = step; radius <= maxDistance; radius += step)
-        {
-            for (float dx = -radius; dx <= radius; dx += step)
-            {
-                float dy = radius - Math.Abs(dx);
-
-                if (dy < 0f)
-                    continue;
-
-                yield return new PointF(dx, -dy);
-                if (dy > 0f)
-                    yield return new PointF(dx, dy);
-            }
-        }
     }
 
     private static bool IsInsidePage(RectangleF candidate, RectangleF pageBounds)
